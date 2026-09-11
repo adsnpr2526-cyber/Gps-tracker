@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Distance Tracker with Signal Indicator</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 30px; background: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 12px; max-width: 400px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #distance { font-size: 2.5rem; color: #007AFF; font-weight: bold; margin: 10px 0; }
+        .signal-box { margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 0.9rem; }
+        .bar { display: inline-block; width: 8px; height: 15px; background: #ccc; margin: 0 2px; border-radius: 2px; }
+        .bar.active { background: #28a745; }
+        button { padding: 10px 20px; margin: 5px; font-size: 1rem; border: none; border-radius: 6px; cursor: pointer; color: white; }
+        .btn-start { background: #28a745; }
+        .btn-stop { background: #dc3545; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>วัดระยะทางด้วย GPS</h2>
+        <div id="distance">0 เมตร</div>
+        <p id="status">สถานะ: พร้อมใช้งาน</p>
+        
+        <!-- ส่วนแสดงความแรงสัญญาณ GPS -->
+        <div class="signal-box">
+            <div>ความแรงสัญญาณ GPS: <span id="signal-text">กำลังค้นหา...</span></div>
+            <div style="margin-top: 5px;">
+                <span class="bar" id="b1"></span>
+                <span class="bar" id="b2" style="height: 20px;"></span>
+                <span class="bar" id="b3" style="height: 25px;"></span>
+                <span class="bar" id="b4" style="height: 30px;"></span>
+            </div>
+            <div style="font-size: 0.8rem; color: #666; margin-top: 4px;">ความแม่นยำ: <span id="accuracy-val">-</span> เมตร</div>
+        </div>
+
+        <button class="btn-start" onclick="startTracking()">เริ่มวัด</button>
+        <button class="btn-stop" onclick="stopTracking()">หยุด</button>
+    </div>
+
+    <script>
+        let watchID = null;
+        let totalDistance = 0;
+        let lastCoord = null;
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+        }
+
+        // ฟังก์ชันแปลงค่าความแม่นยำ (Accuracy) เป็นระดับสัญญาณ 1-4 ขีด
+        function updateSignalStrength(accuracy) {
+            const accuracyValEl = document.getElementById("accuracy-val");
+            const signalTextEl = document.getElementById("signal-text");
+            
+            accuracyValEl.innerText = Math.round(accuracy);
+            
+            let bars = 0;
+            let text = "อ่อนมาก (อยู่ในอาคาร)";
+            let color = "#dc3545";
+
+            if (accuracy <= 10) {
+                bars = 4; text = "ดีเยี่ยม (GPS ชัดเจน)"; color = "#28a745";
+            } else if (accuracy <= 25) {
+                bars = 3; text = "ดี"; color = "#ffc107";
+            } else if (accuracy <= 50) {
+                bars = 2; text = "ปานกลาง"; color = "#fd7e14";
+            } else {
+                bars = 1; text = "อ่อน"; color = "#dc3545";
+            }
+
+            signalTextEl.innerText = text;
+            signalTextEl.style.color = color;
+
+            // ปรับแต่งหลอดสัญญาณ UI
+            for (let i = 1; i <= 4; i++) {
+                const bar = document.getElementById("b" + i);
+                if (i <= bars) {
+                    bar.classList.add("active");
+                    bar.style.background = color;
+                } else {
+                    bar.classList.remove("active");
+                    bar.style.background = "#ccc";
+                }
+            }
+        }
+
+        function startTracking() {
+            if ("geolocation" in navigator) {
+                document.getElementById("status").innerText = "สถานะ: กำลังค้นหาดาวเทียม...";
+                
+                watchID = navigator.geolocation.watchPosition(
+                    (position) => {
+                        document.getElementById("status").innerText = "สถานะ: กำลังติดตามพิกัด...";
+                        const accuracy = position.coords.accuracy;
+                        updateSignalStrength(accuracy);
+
+                        const currentCoord = {
+                            lat: position.coords.latitude,
+                            lon: position.coords.longitude
+                        };
+
+                        if (lastCoord) {
+                            const distance = calculateDistance(lastCoord.lat, lastCoord.lon, currentCoord.lat, currentCoord.lon);
+                            if (distance > 1 && accuracy < 40) { // กรองเอาเฉพาะจุดที่สัญญาณนิ่งพอสมควรมาบวกระยะทาง
+                                totalDistance += distance;
+                                document.getElementById("distance").innerText = totalDistance >= 1000 
+                                    ? (totalDistance / 1000).toFixed(2) + " กิโลเมตร" 
+                                    : Math.round(totalDistance) + " เมตร";
+                            }
+                        }
+                        lastCoord = currentCoord;
+                    },
+                    (error) => { 
+                        document.getElementById("status").innerText = "เกิดข้อผิดพลาดในการดึง GPS";
+                        console.error(error); 
+                    },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                );
+            } else {
+                alert("เบราว์เซอร์นี้ไม่รองรับ Geolocation");
+            }
+        }
+
+        function stopTracking() {
+            if (watchID !== null) {
+                navigator.geolocation.clearWatch(watchID);
+                watchID = null;
+                document.getElementById("status").innerText = "สถานะ: หยุดพัก";
+                document.getElementById("signal-text").innerText = "-";
+                document.getElementById("accuracy-val").innerText = "-";
+                for (let i = 1; i <= 4; i++) {
+                    document.getElementById("b" + i).classList.remove("active");
+                    document.getElementById("b" + i).style.background = "#ccc";
+                }
+            }
+        }
+    </script>
+</body>
+</html>
