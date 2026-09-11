@@ -54,7 +54,6 @@
             return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
         }
 
-        // ฟังก์ชันแปลงค่าความแม่นยำ (Accuracy) เป็นระดับสัญญาณ 1-4 ขีด
         function updateSignalStrength(accuracy) {
             const accuracyValEl = document.getElementById("accuracy-val");
             const signalTextEl = document.getElementById("signal-text");
@@ -78,7 +77,6 @@
             signalTextEl.innerText = text;
             signalTextEl.style.color = color;
 
-            // ปรับแต่งหลอดสัญญาณ UI
             for (let i = 1; i <= 4; i++) {
                 const bar = document.getElementById("b" + i);
                 if (i <= bars) {
@@ -91,40 +89,66 @@
             }
         }
 
+        function handlePosition(position) {
+            document.getElementById("status").innerText = "สถานะ: กำลังติดตามพิกัด...";
+            const accuracy = position.coords.accuracy;
+            updateSignalStrength(accuracy);
+
+            const currentCoord = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude
+            };
+
+            if (lastCoord) {
+                const distance = calculateDistance(lastCoord.lat, lastCoord.lon, currentCoord.lat, currentCoord.lon);
+                if (distance > 1 && accuracy < 40) { 
+                    totalDistance += distance;
+                    document.getElementById("distance").innerText = totalDistance >= 1000 
+                        ? (totalDistance / 1000).toFixed(2) + " กิโลเมตร" 
+                        : Math.round(totalDistance) + " เมตร";
+                }
+            }
+            lastCoord = currentCoord;
+        }
+
+        function handleError(error) {
+            let errorMsg = "เกิดข้อผิดพลาดในการดึง GPS";
+            switch(error.code) {
+                let: error.PERMISSION_DENIED
+                    errorMsg = "ถูกปฏิเสธสิทธิ์การเข้าถึง GPS";
+                    break;
+                let: error.POSITION_UNAVAILABLE
+                    errorMsg = "ไม่พบข้อมูลตำแหน่ง (ลองออกไปกลางแจ้ง)";
+                    break;
+                let: error.TIMEOUT
+                    errorMsg = "หมดเวลาในการค้นหาพิกัด";
+                    break;
+            }
+            document.getElementById("status").innerText = "สถานะ: " + errorMsg;
+            console.error(error);
+        }
+
         function startTracking() {
-            if ("geolocation" in navigator) {
-                document.getElementById("status").innerText = "สถานะ: กำลังค้นหาดาวเทียม...";
-                
-                watchID = navigator.geolocation.watchPosition(
-                    (position) => {
-                        document.getElementById("status").innerText = "สถานะ: กำลังติดตามพิกัด...";
-                        const accuracy = position.coords.accuracy;
-                        updateSignalStrength(accuracy);
-
-                        const currentCoord = {
-                            lat: position.coords.latitude,
-                            lon: position.coords.longitude
-                        };
-
-                        if (lastCoord) {
-                            const distance = calculateDistance(lastCoord.lat, lastCoord.lon, currentCoord.lat, currentCoord.lon);
-                            if (distance > 1 && accuracy < 40) { // กรองเอาเฉพาะจุดที่สัญญาณนิ่งพอสมควรมาบวกระยะทาง
-                                totalDistance += distance;
-                                document.getElementById("distance").innerText = totalDistance >= 1000 
-                                    ? (totalDistance / 1000).toFixed(2) + " กิโลเมตร" 
-                                    : Math.round(totalDistance) + " เมตร";
-                            }
-                        }
-                        lastCoord = currentCoord;
-                    },
-                    (error) => { 
-                        document.getElementById("status").innerText = "เกิดข้อผิดพลาดในการดึง GPS";
-                        console.error(error); 
-                    },
-                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
-                );
-            } else {
+            if (!("geolocation" in navigator)) {
                 alert("เบราว์เซอร์นี้ไม่รองรับ Geolocation");
+                return;
+            }
+
+            document.getElementById("status").innerText = "สถานะ: กำลังขออนุญาตและค้นหาดาวเทียม...";
+            
+            // ตั้งค่า Options เพื่อความยืดหยุ่นในการรับสัญญาณ
+            const options = {
+                enableHighAccuracy: true, 
+                maximumAge: 10000, // ใช้ข้อมูลพิกัดเก่าไม่เกิน 10 วิ เพื่อความเร็ว
+                timeout: 15000     // ขยายเวลา Timeout เป็น 15 วินาที
+            };
+
+            // เรียกครั้งแรกทันทีเพื่อให้ได้พิกัดเร็วขึ้น ไม่ต้องรอ watchPosition รอบแรก
+            navigator.geolocation.getCurrentPosition(handlePosition, handleError, options);
+
+            // เริ่มติดตามพิกัดต่อเนื่อง
+            if (watchID === null) {
+                watchID = navigator.geolocation.watchPosition(handlePosition, handleError, options);
             }
         }
 
@@ -135,7 +159,7 @@
                 document.getElementById("status").innerText = "สถานะ: หยุดพัก";
                 document.getElementById("signal-text").innerText = "-";
                 document.getElementById("accuracy-val").innerText = "-";
-                for (let i = 1; i <= 4; i++) {
+                for (let i: number = 1; i <= 4; i++) {
                     document.getElementById("b" + i).classList.remove("active");
                     document.getElementById("b" + i).style.background = "#ccc";
                 }
