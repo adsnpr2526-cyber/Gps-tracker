@@ -1,170 +1,301 @@
 <!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS Distance Tracker with Signal Indicator</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; padding: 30px; background: #f4f4f9; }
-        .card { background: white; padding: 20px; border-radius: 12px; max-width: 400px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        #distance { font-size: 2.5rem; color: #007AFF; font-weight: bold; margin: 10px 0; }
-        .signal-box { margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 0.9rem; }
-        .bar { display: inline-block; width: 8px; height: 15px; background: #ccc; margin: 0 2px; border-radius: 2px; }
-        .bar.active { background: #28a745; }
-        button { padding: 10px 20px; margin: 5px; font-size: 1rem; border: none; border-radius: 6px; cursor: pointer; color: white; }
-        .btn-start { background: #28a745; }
-        .btn-stop { background: #dc3545; }
-    </style>
-</head>
-<body>
 
-    <div class="card">
-        <h2>วัดระยะทางด้วย GPS</h2>
-        <div id="distance">0 เมตร</div>
-        <p id="status">สถานะ: พร้อมใช้งาน</p>
-        
-        <!-- ส่วนแสดงความแรงสัญญาณ GPS -->
-        <div class="signal-box">
-            <div>ความแรงสัญญาณ GPS: <span id="signal-text">กำลังค้นหา...</span></div>
-            <div style="margin-top: 5px;">
-                <span class="bar" id="b1"></span>
-                <span class="bar" id="b2" style="height: 20px;"></span>
-                <span class="bar" id="b3" style="height: 25px;"></span>
-                <span class="bar" id="b4" style="height: 30px;"></span>
-            </div>
-            <div style="font-size: 0.8rem; color: #666; margin-top: 4px;">ความแม่นยำ: <span id="accuracy-val">-</span> เมตร</div>
-        </div>
 
-        <button class="btn-start" onclick="startTracking()">เริ่มวัด</button>
-        <button class="btn-stop" onclick="stopTracking()">หยุด</button>
-    </div>
 
-    <script>
-        let watchID = null;
-        let totalDistance = 0;
-        let lastCoord = null;
 
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3;
-            const φ1 = lat1 * Math.PI/180;
-            const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180;
-            const Δλ = (lon2-lon1) * Math.PI/180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+GPS Distance Tracker Pro
+
+
+body{
+    font-family:Arial,sans-serif;
+    background:#f4f6f9;
+    text-align:center;
+    padding:20px;
+}
+
+.card{
+    max-width:450px;
+    margin:auto;
+    background:#fff;
+    padding:20px;
+    border-radius:15px;
+    box-shadow:0 4px 12px rgba(0,0,0,.15);
+}
+
+h2{
+    color:#007AFF;
+}
+
+#distance{
+    font-size:3rem;
+    font-weight:bold;
+    color:#007AFF;
+    margin:15px 0;
+}
+
+.info{
+    margin:8px 0;
+    font-size:.95rem;
+}
+
+.signal-bars{
+    margin-top:10px;
+}
+
+.bar{
+    display:inline-block;
+    width:10px;
+    margin:2px;
+    background:#ccc;
+    border-radius:3px;
+}
+
+.bar:nth-child(1){height:12px;}
+.bar:nth-child(2){height:18px;}
+.bar:nth-child(3){height:24px;}
+.bar:nth-child(4){height:30px;}
+
+.active{
+    background:#28a745;
+}
+
+button{
+    border:none;
+    padding:12px 20px;
+    border-radius:8px;
+    color:white;
+    font-size:1rem;
+    cursor:pointer;
+    margin:5px;
+}
+
+.start{
+    background:#28a745;
+}
+
+.stop{
+    background:#dc3545;
+}
+
+
+
+
+
+
+
+GPS Distance Tracker Pro
+
+0 เมตร
+
+
+สถานะ :
+พร้อมใช้งาน
+
+
+
+ความแม่นยำ :
+- เมตร
+
+
+
+ความเร็ว :
+0 กม./ชม.
+
+
+
+Lat :
+-
+
+
+
+Lon :
+-
+
+
+
+สัญญาณ GPS :
+กำลังค้นหา...
+
+
+
+
+
+
+
+
+
+<ms-copilot-line-break>
+
+
+เริ่มวัด
+
+
+
+หยุด
+
+
+
+
+
+
+let watchID = null;
+let totalDistance = 0;
+
+let lastCoord = null;
+let gpsHistory = [];
+
+function haversine(lat1, lon1, lat2, lon2){
+
+    const R = 6371000;
+
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+
+    const a =
+        Math.sin(dLat/2)**2 +
+        Math.cos(lat1*Math.PI/180) *
+        Math.cos(lat2*Math.PI/180) *
+        Math.sin(dLon/2)**2;
+
+    return R * (2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+}
+
+function updateSignal(accuracy){
+
+    let bars=1;
+    let text="อ่อน";
+
+    if(accuracy<=10){
+        bars=4;
+        text="ดีเยี่ยม";
+    }
+    else if(accuracy<=20){
+        bars=3;
+        text="ดี";
+    }
+    else if(accuracy<=35){
+        bars=2;
+        text="ปานกลาง";
+    }
+
+    document.getElementById("signalText").innerText=text;
+
+    for(let i=1;i<=4;i++){
+
+        const bar=document.getElementById("b"+i);
+
+        if(i<=bars){
+            bar.classList.add("active");
+        }else{
+            bar.classList.remove("active");
         }
+    }
+}
 
-        function updateSignalStrength(accuracy) {
-            const accuracyValEl = document.getElementById("accuracy-val");
-            const signalTextEl = document.getElementById("signal-text");
-            
-            accuracyValEl.innerText = Math.round(accuracy);
-            
-            let bars = 0;
-            let text = "อ่อนมาก (อยู่ในอาคาร)";
-            let color = "#dc3545";
+function smoothGPS(coord){
 
-            if (accuracy <= 10) {
-                bars = 4; text = "ดีเยี่ยม (GPS ชัดเจน)"; color = "#28a745";
-            } else if (accuracy <= 25) {
-                bars = 3; text = "ดี"; color = "#ffc107";
-            } else if (accuracy <= 50) {
-                bars = 2; text = "ปานกลาง"; color = "#fd7e14";
-            } else {
-                bars = 1; text = "อ่อน"; color = "#dc3545";
-            }
+    gpsHistory.push(coord);
 
-            signalTextEl.innerText = text;
-            signalTextEl.style.color = color;
+    if(gpsHistory.length>5){
+        gpsHistory.shift();
+    }
 
-            for (let i = 1; i <= 4; i++) {
-                const bar = document.getElementById("b" + i);
-                if (i <= bars) {
-                    bar.classList.add("active");
-                    bar.style.background = color;
-                } else {
-                    bar.classList.remove("active");
-                    bar.style.background = "#ccc";
-                }
-            }
+    const avgLat=
+        gpsHistory.reduce((s,p)=>s+p.lat,0)
+        /gpsHistory.length;
+
+    const avgLon=
+        gpsHistory.reduce((s,p)=>s+p.lon,0)
+        /gpsHistory.length;
+
+    return {
+        lat:avgLat,
+        lon:avgLon
+    };
+}
+
+function updatePosition(position){
+
+    const accuracy=position.coords.accuracy;
+
+    document.getElementById("accuracy").innerText=
+        Math.round(accuracy);
+
+    updateSignal(accuracy);
+
+    if(accuracy>15){
+
+        document.getElementById("status").innerText=
+            "รอสัญญาณ GPS ที่แม่นยำ";
+
+        return;
+    }
+
+    const rawCoord={
+        lat:position.coords.latitude,
+        lon:position.coords.longitude
+    };
+
+    const current=smoothGPS(rawCoord);
+
+    document.getElementById("lat").innerText=
+        current.lat.toFixed(6);
+
+    document.getElementById("lon").innerText=
+        current.lon.toFixed(6);
+
+    let speed=position.coords.speed;
+
+    if(speed===null){
+        speed=0;
+    }
+
+    document.getElementById("speed").innerText=
+        (speed*3.6).toFixed(1);
+
+    if(lastCoord){
+
+        const distance=
+            haversine(
+                lastCoord.lat,
+                lastCoord.lon,
+                current.lat,
+                current.lon
+            );
+
+        if(
+            distance >= 3 &&
+            distance <= 30 &&
+            accuracy <= 15
+        ){
+            totalDistance += distance;
         }
+    }
 
-        function handlePosition(position) {
-            document.getElementById("status").innerText = "สถานะ: กำลังติดตามพิกัด...";
-            const accuracy = position.coords.accuracy;
-            updateSignalStrength(accuracy);
+    lastCoord=current;
 
-            const currentCoord = {
-                lat: position.coords.latitude,
-                lon: position.coords.longitude
-            };
+    document.getElementById("distance").innerText=
+        totalDistance >=1000
+        ? (totalDistance/1000).toFixed(2)+" กม."
+        : Math.round(totalDistance)+" เมตร";
 
-            if (lastCoord) {
-                const distance = calculateDistance(lastCoord.lat, lastCoord.lon, currentCoord.lat, currentCoord.lon);
-                if (distance > 1 && accuracy < 40) { 
-                    totalDistance += distance;
-                    document.getElementById("distance").innerText = totalDistance >= 1000 
-                        ? (totalDistance / 1000).toFixed(2) + " กิโลเมตร" 
-                        : Math.round(totalDistance) + " เมตร";
-                }
-            }
-            lastCoord = currentCoord;
-        }
+    document.getElementById("status").innerText=
+        "กำลังติดตาม";
+}
 
-        function handleError(error) {
-            let errorMsg = "เกิดข้อผิดพลาดในการดึง GPS";
-            switch(error.code) {
-                let: error.PERMISSION_DENIED
-                    errorMsg = "ถูกปฏิเสธสิทธิ์การเข้าถึง GPS";
-                    break;
-                let: error.POSITION_UNAVAILABLE
-                    errorMsg = "ไม่พบข้อมูลตำแหน่ง (ลองออกไปกลางแจ้ง)";
-                    break;
-                let: error.TIMEOUT
-                    errorMsg = "หมดเวลาในการค้นหาพิกัด";
-                    break;
-            }
-            document.getElementById("status").innerText = "สถานะ: " + errorMsg;
-            console.error(error);
-        }
+function showError(error){
 
-        function startTracking() {
-            if (!("geolocation" in navigator)) {
-                alert("เบราว์เซอร์นี้ไม่รองรับ Geolocation");
-                return;
-            }
+    switch(error.code){
 
-            document.getElementById("status").innerText = "สถานะ: กำลังขออนุญาตและค้นหาดาวเทียม...";
-            
-            // ตั้งค่า Options เพื่อความยืดหยุ่นในการรับสัญญาณ
-            const options = {
-                enableHighAccuracy: true, 
-                maximumAge: 10000, // ใช้ข้อมูลพิกัดเก่าไม่เกิน 10 วิ เพื่อความเร็ว
-                timeout: 15000     // ขยายเวลา Timeout เป็น 15 วินาที
-            };
+        case error.PERMISSION_DENIED:
+            document.getElementById("status").innerText=
+                "ไม่ได้รับอนุญาต GPS";
+            break;
 
-            // เรียกครั้งแรกทันทีเพื่อให้ได้พิกัดเร็วขึ้น ไม่ต้องรอ watchPosition รอบแรก
-            navigator.geolocation.getCurrentPosition(handlePosition, handleError, options);
+        case error.POSITION_UNAVAILABLE:
+            document.getElementById("status").innerText=
+                "ไม่พบตำแหน่ง";
+            break;
 
-            // เริ่มติดตามพิกัดต่อเนื่อง
-            if (watchID === null) {
-                watchID = navigator.geolocation.watchPosition(handlePosition, handleError, options);
-            }
-        }
-
-        function stopTracking() {
-            if (watchID !== null) {
-                navigator.geolocation.clearWatch(watchID);
-                watchID = null;
-                document.getElementById("status").innerText = "สถานะ: หยุดพัก";
-                document.getElementById("signal-text").innerText = "-";
-                document.getElementById("accuracy-val").innerText = "-";
-                for (let i: number = 1; i <= 4; i++) {
-                    document.getElementById("b" + i).classList.remove("active");
-                    document.getElementById("b" + i).style.background = "#ccc";
-                }
-            }
-        }
-    </script>
-</body>
-</html>
+        case error.TIMEOUT:
+            document.getElementById("status").innerText=
