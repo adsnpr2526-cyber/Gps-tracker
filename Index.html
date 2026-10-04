@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#007AFF">
+<title>High-Precision GPS Tracker</title>
+<style>
+:root{--primary:#007aff;--success:#20a05a;--danger:#dc3545;--warning:#f0ad00;--bg:#f4f6f9}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;padding:20px;background:var(--bg);color:#333;margin:0;min-height:100vh}
+.card{background:#fff;padding:24px;border-radius:20px;max-width:440px;margin:auto;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.distance-title{font-size:.95rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+#distance{font-size:3rem;color:var(--primary);font-weight:800;margin:5px 0 15px;line-height:1}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px}
+.stat-item{background:#f8f9fa;padding:10px;border-radius:12px;border:1px solid #eee}
+.stat-label{font-size:.75rem;color:#777;font-weight:600}
+.stat-value{font-size:1.2rem;font-weight:bold;color:#222;margin-top:2px}
+.signal-box{margin:15px 0;padding:12px;background:#f8f9fa;border-radius:12px;font-size:.85rem;border:1px solid #eee}
+.bar-container{display:flex;justify-content:center;align-items:flex-end;gap:4px;height:25px;margin:8px 0}
+.bar{width:8px;background:#ddd;border-radius:3px;transition:all .2s}
+.btn-group{display:flex;gap:8px;margin-top:15px}
+button{flex:1;padding:14px;font-size:1rem;border:0;border-radius:12px;cursor:pointer;color:#fff;font-weight:bold;transition:all .2s;touch-action:manipulation}
+button:active:not(:disabled){transform:scale(.98)}
+.btn-start{background:var(--success)}.btn-start:disabled{background:#a5d6a7;cursor:not-allowed}
+.btn-stop{background:var(--danger)}.btn-stop:disabled{background:#ef9a9a;cursor:not-allowed}
+.btn-reset{background:#6c757d;flex:.4}
+#status{font-size:.85rem;color:#666;margin-top:10px;font-weight:500;min-height:1.2em}
+.note{font-size:.7rem;color:#888;margin-top:10px;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="distance-title">ระยะทางรวม</div>
+  <div id="distance">0 <span style="font-size:1.5rem">เมตร</span></div>
+
+  <div class="stats-grid">
+    <div class="stat-item">
+      <div class="stat-label">ความเร็วปัจจุบัน</div>
+      <div class="stat-value"><span id="speed-val">0.0</span> <span style="font-size:.8rem">กม./ชม.</span></div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">ระยะเวลารวม</div>
+      <div class="stat-value" id="time-val">00:00:00</div>
+    </div>
+  </div>
+
+  <div class="signal-box">
+    <div>สัญญาณ GPS: <span id="signal-text" style="font-weight:bold">กำลังตรวจสอบ...</span></div>
+    <div class="bar-container">
+      <div class="bar" id="b1" style="height:30%"></div>
+      <div class="bar" id="b2" style="height:50%"></div>
+      <div class="bar" id="b3" style="height:75%"></div>
+      <div class="bar" id="b4" style="height:100%"></div>
+    </div>
+    <div>ความแม่นยำ: ±<span id="accuracy-val">-</span> เมตร</div>
+    <div style="margin-top:4px;color:#888;font-size:.75rem">
+      <span id="latitude-val">0.000000</span>, <span id="longitude-val">0.000000</span>
+    </div>
+  </div>
+
+  <div class="btn-group">
+    <button id="btn-start" class="btn-start" type="button">เริ่ม</button>
+    <button id="btn-stop" class="btn-stop" type="button" disabled>หยุด</button>
+    <button id="btn-reset" class="btn-reset" type="button">รีเซ็ต</button>
+  </div>
+  <p id="status">สถานะ: พร้อมใช้งาน</p>
+  <div class="note">หมายเหตุ: ความแม่นยำจริงขึ้นอยู่กับ GPS/สภาพแวดล้อมของอุปกรณ์และเบราว์เซอร์</div>
+</div>
+
+<script>
+"use strict";
+
+let watchID = null;
+let totalDistance = 0;
+let lastAccepted = null;
+let wakeLock = null;
+let timerInterval = null;
+let trackingStartedAt = null;
+let elapsedBeforeStart = 0;
+let lastSpeedKmh = 0;
+let lastPositionTimestamp = 0;
+
+/* -------------------- Utilities -------------------- */
+const $ = id => document.getElementById(id);
+
+function formatDuration(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = String(Math.floor(s / 3600)).padStart(2, "0");
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const sec = String(s % 60).padStart(2, "0");
+  return `${h}:${m}:${sec}`;
+}
+
+function updateTimerDisplay() {
+  let seconds = elapsedBeforeStart;
+  if (trackingStartedAt !== null) {
+    seconds += (performance.now() - trackingStartedAt) / 1000;
+  }
+  $("time-val").textContent = formatDuration(seconds);
+}
+
+function updateDistanceDisplay() {
+  if (totalDistance >= 1000) {
+    $("distance").innerHTML =
+      `${(totalDistance / 1000).toFixed(2)} <span style="font-size:1.5rem">กิโลเมตร</span>`;
+  } else {
+    $("distance").innerHTML =
+      `${Math.round(totalDistance)} <span style="font-size:1.5rem">เมตร</span>`;
+  }
+}
+
+/* -------------------- Distance -------------------- */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  // Haversine: ใช้กับระยะทางบนพื้นผิวโลก
+  const R = 6371008.8;
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const p1 = lat1 * toRad;
+  const p2 = lat2 * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+}
+
+/* -------------------- GPS signal -------------------- */
+function updateSignalStrength(accuracy) {
+  const a = Number(accuracy);
+  if (!Number.isFinite(a)) return;
+
+  $("accuracy-val").textContent = a < 10 ? a.toFixed(1) : Math.round(a);
+
+  let bars, text, color;
+  if (a <= 5) {
+    bars = 4; text = "ดีเยี่ยม"; color = "#20a05a";
+  } else if (a <= 10) {
+    bars = 4; text = "ดีมาก"; color = "#20a05a";
+  } else if (a <= 20) {
+    bars = 3; text = "ดี"; color = "#17a2b8";
+  } else if (a <= 35) {
+    bars = 2; text = "ปานกลาง"; color = "#f0ad00";
+  } else {
+    bars = 1; text = "อ่อน"; color = "#dc3545";
+  }
+
+  $("signal-text").textContent = text;
+  $("signal-text").style.color = color;
+
+  for (let i = 1; i <= 4; i++) {
+    $("b" + i).style.background = i <= bars ? color : "#ddd";
+  }
+}
+
+function displayPosition(coords) {
+  $("latitude-val").textContent = Number(coords.latitude).toFixed(6);
+  $("longitude-val").textContent = Number(coords.longitude).toFixed(6);
+  updateSignalStrength(coords.accuracy);
+}
+
+/* -------------------- Position processing -------------------- */
+/*
+  สำคัญ:
+  - ไม่ใช้ Kalman-filtered lat/lng เป็นตัวสะสมระยะทาง
+    เพราะการ smoothing ทำให้พิกัด "ลากตามหลัง" และทำให้ระยะทางจริงเพี้ยน
+  - ใช้พิกัดจริงจาก Geolocation สำหรับระยะทาง
+  - ใช้ accuracy + speed + distance/time เป็นตัวกรอง drift
+*/
+function handlePosition(position) {
+  const c = position.coords;
+  const timestamp = Number(position.timestamp) || Date.now();
+  const accuracy = Number(c.accuracy);
+
+  if (!Number.isFinite(c.latitude) || !Number.isFinite(c.longitude) ||
+      !Number.isFinite(accuracy)) {
+    return;
+  }
+
+  displayPosition(c);
+
+  const rawSpeedKmh =
+    Number.isFinite(c.speed) && c.speed >= 0 ? c.speed * 3.6 : null;
+
+  if (rawSpeedKmh !== null) {
+    lastSpeedKmh = Math.max(0, Math.min(rawSpeedKmh, 300));
+  }
+
+  $("speed-val").textContent = lastSpeedKmh.toFixed(1);
+
+  if (watchID === null) return;
+
+  $("status").textContent = "สถานะ: กำลังบันทึกระยะทาง...";
+
+  // พิกัดที่ accuracy แย่มากไม่ใช้สะสมระยะทาง
+  if (accuracy > 35) {
+    $("status").textContent = "สถานะ: สัญญาณ GPS อ่อน — รอพิกัดที่แม่นขึ้น";
+    return;
+  }
+
+  const current = {
+    lat: c.latitude,
+    lon: c.longitude,
+    time: timestamp,
+    accuracy
+  };
+
+  if (!lastAccepted) {
+    lastAccepted = current;
+    lastPositionTimestamp = timestamp;
+    return;
+  }
+
+  const dt = (timestamp - lastAccepted.time) / 1000;
+  if (!Number.isFinite(dt) || dt <= 0) return;
+
+  const distance = calculateDistance(
+    lastAccepted.lat, lastAccepted.lon,
+    current.lat, current.lon
+  );
+
+  if (!Number.isFinite(distance) || distance < 0) return;
+
+  const calculatedSpeedKmh = (distance / dt) * 3.6;
+  const reportedSpeed = rawSpeedKmh;
+
+  // ความเร็วที่ใช้ตัดสินการเคลื่อนที่
+  const effectiveSpeed =
+    reportedSpeed !== null ? Math.max(reportedSpeed, calculatedSpeedKmh) : calculatedSpeedKmh;
+
+  // Dynamic threshold: ลด GPS jitter ตอนจอด แต่ไม่ตัดระยะสั้นตอนเคลื่อนที่
+  const movementThreshold = Math.max(
+    2.0,
+    Math.min(8.0, accuracy * 0.20 + lastAccepted.accuracy * 0.10)
+  );
+
+  const moving = effectiveSpeed >= 1.0;
+  const plausibleSpeed =
+    calculatedSpeedKmh <= 180 &&
+    (reportedSpeed === null || reportedSpeed <= 220);
+
+  if (moving && distance >= movementThreshold && plausibleSpeed) {
+    totalDistance += distance;
+    updateDistanceDisplay();
+
+    lastAccepted = current;
+    lastPositionTimestamp = timestamp;
+  } else if (!moving) {
+    // ตอนหยุดนิ่งอัปเดต "จุดอ้างอิง" เฉพาะถ้าพิกัดใหม่ไม่ได้กระโดดไกลเกิน threshold
+    // เพื่อไม่ให้ drift ตอนจอดถูกนำไปสะสมเป็นระยะทาง
+    if (distance <= Math.max(5, accuracy * 0.5)) {
+      lastAccepted = current;
+    } else {
+      // รีเซ็ตเวลา แต่คงตำแหน่งอ้างอิงเดิม
+      lastAccepted.time = timestamp;
+      lastAccepted.accuracy = accuracy;
+    }
+  } else if (!plausibleSpeed) {
+    // GPS jump: ไม่สะสม และไม่ย้ายจุดอ้างอิงไปยังจุดที่ผิดปกติ
+    $("status").textContent = "สถานะ: พบพิกัดกระโดด — ไม่ได้นำมาคำนวณ";
+  }
+
+  lastPositionTimestamp = timestamp;
+}
+
+/* -------------------- Error handling -------------------- */
+function handleError(error) {
+  let message = "เกิดข้อผิดพลาดในการดึง GPS";
+
+  switch (error.code) {
+    case error.PERMISSION_DENIED:
+      message = "ถูกปฏิเสธสิทธิ์ GPS — กรุณาอนุญาต Location ให้เบราว์เซอร์";
+      break;
+    case error.POSITION_UNAVAILABLE:
+      message = "ไม่พบตำแหน่ง — เปิด Location และลองอยู่ในที่โล่ง";
+      break;
+    case error.TIMEOUT:
+      message = "หมดเวลารับ GPS — ระบบจะพยายามรับพิกัดใหม่";
+      break;
+  }
+
+  $("status").textContent = "สถานะ: " + message;
+}
+
+/* -------------------- Wake Lock -------------------- */
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+
+  try {
+    if (wakeLock && !wakeLock.released) return;
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+    });
+  } catch (err) {
+    console.warn("Wake Lock:", err);
+  }
+}
+
+async function releaseWakeLock() {
+  if (!wakeLock) return;
+  try {
+    await wakeLock.release();
+  } catch (err) {
+    console.warn("Wake Lock release:", err);
+  } finally {
+    wakeLock = null;
+  }
+}
+
+/* -------------------- Timer -------------------- */
+function startTimer() {
+  if (timerInterval !== null) return;
+  trackingStartedAt = performance.now();
+  timerInterval = setInterval(updateTimerDisplay, 250);
+  updateTimerDisplay();
+}
+
+function stopTimer() {
+  if (trackingStartedAt !== null) {
+    elapsedBeforeStart += (performance.now() - trackingStartedAt) / 1000;
+  }
+  trackingStartedAt = null;
+
+  if (timerInterval !== null) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  updateTimerDisplay();
+}
+
+/* -------------------- Tracking controls -------------------- */
+function startTracking() {
+  if (!("geolocation" in navigator)) {
+    alert("อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับ Geolocation");
+    return;
+  }
+
+  if (watchID !== null) return;
+
+  lastAccepted = null;
+  lastSpeedKmh = 0;
+
+  $("btn-start").disabled = true;
+  $("btn-stop").disabled = false;
+  $("status").textContent = "สถานะ: กำลังค้นหาสัญญาณ GPS...";
+
+  startTimer();
+  requestWakeLock();
+
+  const options = {
+    enableHighAccuracy: true,
+    maximumAge: 0,
+    timeout: 10000
+  };
+
+  watchID = navigator.geolocation.watchPosition(
+    handlePosition,
+    handleError,
+    options
+  );
+}
+
+async function stopTracking() {
+  if (watchID !== null) {
+    navigator.geolocation.clearWatch(watchID);
+    watchID = null;
+  }
+
+  stopTimer();
+  await releaseWakeLock();
+
+  $("btn-start").disabled = false;
+  $("btn-stop").disabled = true;
+  $("speed-val").textContent = "0.0";
+  lastSpeedKmh = 0;
+  $("status").textContent = "สถานะ: หยุดบันทึกแล้ว";
+}
+
+async function resetTracking() {
+  await stopTracking();
+
+  totalDistance = 0;
+  lastAccepted = null;
+  lastSpeedKmh = 0;
+  lastPositionTimestamp = 0;
+  elapsedBeforeStart = 0;
+  trackingStartedAt = null;
+
+  $("distance").innerHTML =
+    '0 <span style="font-size:1.5rem">เมตร</span>';
+  $("speed-val").textContent = "0.0";
+  $("time-val").textContent = "00:00:00";
+  $("accuracy-val").textContent = "-";
+  $("latitude-val").textContent = "0.000000";
+  $("longitude-val").textContent = "0.000000";
+  $("signal-text").textContent = "กำลังตรวจสอบ...";
+  $("signal-text").style.color = "";
+  for (let i = 1; i <= 4; i++) $("b" + i).style.background = "#ddd";
+
+  $("status").textContent = "สถานะ: รีเซ็ตข้อมูลเรียบร้อย";
+}
+
+/* -------------------- Page lifecycle -------------------- */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && watchID !== null) {
+    requestWakeLock();
+  }
+});
+
+window.addEventListener("pagehide", () => {
+  // ไม่ใช้ unload เพื่อยกเลิก GPS เพราะบาง browser ไม่รับประกัน
+  releaseWakeLock();
+});
+
+$("btn-start").addEventListener("click", startTracking);
+$("btn-stop").addEventListener("click", stopTracking);
+$("btn-reset").addEventListener("click", resetTracking);
+
+/* -------------------- Initial GPS check -------------------- */
+window.addEventListener("load", () => {
+  if (!("geolocation" in navigator)) {
+    $("status").textContent = "สถานะ: เบราว์เซอร์ไม่รองรับ GPS";
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      displayPosition(pos.coords);
+      $("status").textContent = "สถานะ: GPS พร้อมใช้งาน";
+    },
+    handleError,
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+  );
+});
+</script>
+</body>
+</html>
